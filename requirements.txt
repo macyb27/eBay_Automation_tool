@@ -1,0 +1,85 @@
+# 🚀 eBay Automation Tool - Python Dependencies
+# Optimiert für Performance und Stabilität
+
+# 🔥 CORE FRAMEWORK
+fastapi==0.104.1          # Lightning fast API framework
+uvicorn[standard]==0.24.0 # ASGI server mit auto-reload
+pydantic==2.5.0          # Data validation mit Type Safety
+
+# 🔍 AI & COMPUTER VISION  
+openai==1.3.7            # GPT-4V für Bildanalyse + Content Generation
+anthropic==0.7.7         # Claude als Fallback
+pillow==10.1.0           # Image processing
+requests==2.31.0         # HTTP client für externe APIs
+
+# 📊 DATA & DATABASE
+sqlalchemy[asyncio]==2.0.23  # Async ORM
+asyncpg==0.29.0             # PostgreSQL async driver  
+redis[hiredis]==5.0.1       # Caching + Session storage
+pandas==2.1.4               # Data analysis (für Marktdaten)
+
+# 🛠️ UTILITIES
+python-multipart==0.0.6  # File upload support
+python-decouple==3.8     # Environment variables
+httpx==0.25.2            # Async HTTP client
+aiofiles==23.2.1         # Async file operations
+
+# 📈 MONITORING & LOGGING
+sentry-sdk[fastapi]==1.38.0  # Error tracking
+prometheus-client==0.19.0    # Metrics
+structlog==23.2.0           # Structured logging
+
+# 🔒 SECURITY & AUTH
+python-jose[cryptography]==3.3.0  # JWT handling
+passlib[bcrypt]==1.7.4            # Password hashing
+python-multipart==0.0.6           # Form data parsing
+
+# 🧪 TESTING & DEVELOPMENT  
+pytest==7.4.3           # Testing framework
+pytest-asyncio==0.21.1  # Async test support
+httpx==0.25.2           # Test client
+faker==20.1.0           # Test data generation
+
+# 📦 DEPLOYMENT
+gunicorn==21.2.0        # Production WSGI server
+docker==6.1.3           # Container management
+python-dotenv==1.0.0    # Environment file support
+
+# 🎯 EBAY API INTEGRATION
+ebaysdk-python==2.2.0   # Official eBay SDK (falls verfügbar)
+# Alternative: Custom HTTP client für eBay Trading API
+
+# ⚡ PERFORMANCE OPTIMIZATIONS
+orjson==3.9.10          # Faster JSON serialization
+ujson==5.8.0            # Alternative JSON parser
+cython==3.0.6           # Compile critical paths
+numba==0.58.1           # JIT compilation für numerische Operationen
+
+# 📸 IMAGE PROCESSING & OPTIMIZATION
+pillow-simd==10.0.1     # Faster image operations (wenn verfügbar)
+imageio==2.33.1         # Image I/O
+opencv-python-headless==4.8.1.78  # Computer Vision (headless für Server)
+
+# 🌐 WEB SCRAPING (für Marktforschung)
+beautifulsoup4==4.12.2  # HTML parsing
+lxml==4.9.3             # XML/HTML parser
+playwright==1.40.0      # Browser automation (für JS-heavy sites)
+
+# 🔄 ASYNC & CONCURRENCY
+asyncio-throttle==1.0.2  # Rate limiting
+aiohttp==3.9.1          # Alternative async HTTP client
+tenacity==8.2.3         # Retry logic mit exponential backoff
+
+# 📊 ANALYTICS & METRICS
+scipy==1.11.4           # Statistical computations
+numpy==1.25.2           # Numerical computing
+matplotlib==3.8.2       # Plotting (für Analytics Dashboard)
+
+# 🎨 FRONTEND BUILD TOOLS (falls Python-basiert)
+# jinja2==3.1.2         # Template engine (falls Server-Side Rendering)
+
+# Development Quality Tools
+black==23.11.0          # Code formatter
+isort==5.12.0           # Import sorter  
+mypy==1.7.1             # Type checking
+ruff==0.1.6             # Super fast linter

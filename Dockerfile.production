@@ -1,0 +1,276 @@
+# 🚀 eBay Automation Tool - PRODUCTION DOCKERFILE
+# Multi-stage build für optimale Performance und Security
+
+# ========================================
+# 🏗️ BUILD STAGE
+# ========================================
+
+FROM python:3.11-slim as builder
+
+# Build Arguments
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+
+# Performance Labels
+LABEL maintainer="eBay Automation Team"
+LABEL version="2.0.0-production"
+LABEL description="AI-Powered eBay Listing Generator - Ultra-Fast Production Build"
+
+# System Dependencies (Build-time only)
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libc6-dev \
+    libffi-dev \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python Build Environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Create App Directory
+WORKDIR /app
+
+# Copy Requirements First (für Docker Layer Caching)
+COPY requirements.txt .
+
+# Install Python Dependencies mit Performance Optimizations
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install gunicorn[gevent] && \
+    find /usr/local/lib/python3.11/site-packages -name "*.pyc" -delete
+
+# ========================================
+# 🚀 PRODUCTION STAGE
+# ========================================
+
+FROM python:3.11-slim
+
+# Runtime Labels
+LABEL stage="production"
+LABEL performance="ultra-high"
+
+# Security: Create non-root user
+RUN groupadd -r ebayapp && useradd -r -g ebayapp -d /app -s /sbin/nologin ebayapp
+
+# Runtime Dependencies (Minimal)
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Python Runtime Environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/app/.local/bin:$PATH"
+
+# Application Directory
+WORKDIR /app
+
+# Copy Python Dependencies from Builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy Application Code
+COPY --chown=ebayapp:ebayapp . .
+
+# Create Required Directories
+RUN mkdir -p /app/uploads /app/logs /app/temp && \
+    chown -R ebayapp:ebayapp /app
+
+# Performance Optimizations
+RUN python -m compileall -b . && \
+    find . -name "*.py" -delete && \
+    find . -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+# ========================================
+# 🔧 PRODUCTION CONFIGURATION
+# ========================================
+
+# Health Check Script
+COPY --chown=ebayapp:ebayapp <<EOF /app/healthcheck.py
+#!/usr/bin/env python3
+import httpx
+import sys
+
+try:
+    response = httpx.get("http://localhost:8000/api/health", timeout=5)
+    if response.status_code == 200:
+        sys.exit(0)
+    else:
+        sys.exit(1)
+except Exception:
+    sys.exit(1)
+EOF
+
+RUN chmod +x /app/healthcheck.py
+
+# Gunicorn Configuration
+COPY --chown=ebayapp:ebayapp <<EOF /app/gunicorn.conf.py
+# 🚀 Gunicorn Production Configuration - Ultra Performance
+
+import multiprocessing
+import os
+
+# Server Socket
+bind = "0.0.0.0:8000"
+backlog = 2048
+
+# Worker Processes (Performance Tuned)
+workers = int(os.getenv('GUNICORN_WORKERS', multiprocessing.cpu_count() * 2 + 1))
+worker_class = "uvicorn.workers.UvicornWorker"
+worker_connections = 1000
+max_requests = 10000
+max_requests_jitter = 1000
+preload_app = True
+keepalive = 120
+
+# Performance Settings
+timeout = 60
+graceful_timeout = 30
+worker_tmp_dir = "/dev/shm"
+
+# Logging
+loglevel = os.getenv('LOG_LEVEL', 'info').lower()
+accesslog = "/app/logs/access.log"
+errorlog = "/app/logs/error.log"
+access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
+
+# Resource Limits
+limit_request_line = 4094
+limit_request_fields = 100
+limit_request_field_size = 8190
+
+# Security
+forwarded_allow_ips = "*"
+secure_scheme_headers = {
+    'X-FORWARDED-PROTOCOL': 'ssl',
+    'X-FORWARDED-PROTO': 'https',
+    'X-FORWARDED-SSL': 'on'
+}
+EOF
+
+# Startup Script
+COPY --chown=ebayapp:ebayapp <<EOF /app/start.sh
+#!/bin/bash
+
+# 🚀 Production Startup Script
+
+set -e
+
+echo "🚀 Starting eBay Automation API - Production Mode"
+
+# Environment Validation
+if [[ -z "\$OPENAI_API_KEY" ]]; then
+    echo "⚠️  OPENAI_API_KEY not set - using mock services"
+fi
+
+if [[ -z "\$DATABASE_URL" ]]; then
+    echo "⚠️  DATABASE_URL not set - using SQLite fallback"
+fi
+
+# Database Migration (if needed)
+echo "📊 Checking database..."
+python -c "
+import asyncio
+from database.connection import init_db
+asyncio.run(init_db())
+print('✅ Database ready')
+"
+
+# Start Application
+echo "🔥 Starting Gunicorn with optimized settings..."
+
+exec gunicorn main_optimized:app \
+    --config /app/gunicorn.conf.py \
+    --log-config /app/logging.conf 2>/dev/null || \
+exec gunicorn main_optimized:app \
+    --config /app/gunicorn.conf.py
+EOF
+
+RUN chmod +x /app/start.sh
+
+# Logging Configuration
+COPY --chown=ebayapp:ebayapp <<EOF /app/logging.conf
+[loggers]
+keys=root,gunicorn.error,gunicorn.access
+
+[handlers]
+keys=console,error_file,access_file
+
+[formatters]
+keys=generic,access
+
+[logger_root]
+level=INFO
+handlers=console
+
+[logger_gunicorn.error]
+level=INFO
+handlers=error_file
+propagate=1
+qualname=gunicorn.error
+
+[logger_gunicorn.access]
+level=INFO
+handlers=access_file
+propagate=0
+qualname=gunicorn.access
+
+[handler_console]
+class=StreamHandler
+formatter=generic
+args=(sys.stdout, )
+
+[handler_error_file]
+class=FileHandler
+formatter=generic
+args=('/app/logs/error.log', 'a')
+
+[handler_access_file]
+class=FileHandler
+formatter=access
+args=('/app/logs/access.log', 'a')
+
+[formatter_generic]
+format=%(asctime)s [%(process)d] [%(levelname)s] %(message)s
+datefmt=%Y-%m-%d %H:%M:%S
+class=logging.Formatter
+
+[formatter_access]
+format=%(message)s
+class=logging.Formatter
+EOF
+
+# ========================================
+# 🛡️ SECURITY & PERMISSIONS
+# ========================================
+
+# Switch to non-root user
+USER ebayapp
+
+# Expose Ports
+EXPOSE 8000 9090
+
+# Health Check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python /app/healthcheck.py
+
+# Volume Mounts
+VOLUME ["/app/uploads", "/app/logs"]
+
+# ========================================
+# 🚀 STARTUP COMMAND
+# ========================================
+
+# Default startup command
+CMD ["/app/start.sh"]
+
+# Alternative commands for different scenarios:
+# Development: CMD ["python", "main_optimized.py"]
+# Debug: CMD ["python", "-m", "debugpy", "--listen", "0.0.0.0:5678", "main_optimized.py"]
+# Profile: CMD ["python", "-m", "cProfile", "-o", "/app/logs/profile.prof", "main_optimized.py"]
