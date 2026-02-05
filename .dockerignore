@@ -1,0 +1,55 @@
+# Docker Build Ignore
+# Dateien die nicht in den Build-Container sollen
+
+# Build Artefakte
+.buildozer/
+bin/
+*.apk
+*.aab
+build.log
+deploy.log
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environments
+venv/
+.env
+*.env
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Dokumentation (nicht fuer APK Build noetig)
+*.md
+docs/
+
+# Keystore (Sicherheit!)
+*.keystore
+*.jks
+
+# Test-Dateien
+tests/
+test_*
+*_test.py
+
+# Node Modules (falls vorhanden)
+node_modules/

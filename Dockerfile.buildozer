@@ -1,0 +1,134 @@
+# ============================================
+# eBay Automation Tool - APK Build Container
+# Docker-basierter Build OHNE Sandbox-Umgebung
+# ============================================
+#
+# Verwendung:
+#   docker build -f Dockerfile.buildozer -t ebay-apk-builder .
+#   docker run --rm -v $(pwd)/bin:/workspace/bin ebay-apk-builder
+#   docker run --rm -v $(pwd)/bin:/workspace/bin ebay-apk-builder release
+#
+# ============================================
+
+FROM ubuntu:22.04
+
+# Keine interaktiven Prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Berlin
+
+# ============================================
+# System-Abhaengigkeiten installieren
+# OHNE Sandbox/Isolation-Schichten
+# ============================================
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Python
+    python3 \
+    python3-pip \
+    python3-setuptools \
+    python3-dev \
+    python3-venv \
+    # Build-Tools
+    build-essential \
+    git \
+    zip \
+    unzip \
+    wget \
+    curl \
+    # Java (fuer Android SDK)
+    openjdk-17-jdk \
+    # Native Libraries
+    autoconf \
+    libtool \
+    pkg-config \
+    zlib1g-dev \
+    libncurses5-dev \
+    libncursesw5-dev \
+    cmake \
+    libffi-dev \
+    libssl-dev \
+    automake \
+    lld \
+    # Audio/Video (fuer SDL2)
+    libsdl2-dev \
+    libsdl2-image-dev \
+    libsdl2-mixer-dev \
+    libsdl2-ttf-dev \
+    # Zusaetzliche Libs
+    libltdl-dev \
+    libgmp-dev \
+    libmpc-dev \
+    # Cleanup
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Java Home setzen
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# ============================================
+# Python Build-Tools installieren
+# Direkt im System (KEINE Sandbox)
+# ============================================
+
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip3 install --no-cache-dir \
+    buildozer==1.5.0 \
+    cython==0.29.36 \
+    python-for-android \
+    sh \
+    appdirs \
+    colorama \
+    jinja2 \
+    packaging
+
+# ============================================
+# Arbeitsverzeichnis einrichten
+# ============================================
+
+WORKDIR /workspace
+
+# Android SDK Lizenzen vorab akzeptieren
+RUN mkdir -p /root/.buildozer/android/platform/android-sdk/licenses && \
+    echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license && \
+    echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license && \
+    echo "84831b9409646a918e30573bab4c9c91346d8abd" > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+
+# ============================================
+# Umgebungsvariablen fuer Build OHNE Sandbox
+# ============================================
+
+ENV ANDROIDSDK=/root/.buildozer/android/platform/android-sdk
+ENV ANDROIDNDK=/root/.buildozer/android/platform/android-ndk-r25b
+ENV ANDROIDAPI=33
+ENV NDKAPI=24
+ENV ANDROID_HOME=/root/.buildozer/android/platform/android-sdk
+ENV ANDROID_SDK_ROOT=/root/.buildozer/android/platform/android-sdk
+
+# PATH fuer Android Tools
+ENV PATH=$ANDROIDSDK/tools:$ANDROIDSDK/platform-tools:$ANDROIDNDK:$PATH
+
+# Keine Sandbox-Isolation
+ENV USE_VENV=0
+
+# ============================================
+# Projektdateien kopieren
+# ============================================
+
+# Buildozer Spec zuerst (Docker Layer Caching)
+COPY buildozer.spec .
+
+# Mobile App
+COPY mobile_app/ ./mobile_app/
+
+# Build-Script
+COPY build_apk.sh .
+RUN chmod +x build_apk.sh
+
+# ============================================
+# Build-Entrypoint
+# ============================================
+
+# Standard: Debug APK bauen
+ENTRYPOINT ["/workspace/build_apk.sh"]
+CMD ["debug"]

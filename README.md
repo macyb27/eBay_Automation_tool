@@ -28,6 +28,21 @@ Deployment:   Docker + Vercel + Railway
 Monitoring:   Sentry + Posthog
 ```
 
+### 📱 ANDROID APK BUILD (Ohne Sandbox)
+
+Das Tool kann als native Android-App gebaut werden - **ohne Sandbox-Umgebung**:
+
+```bash
+# Schnellstart: Debug APK bauen
+./build_apk.sh debug
+
+# Oder mit Docker (empfohlen)
+docker build -f Dockerfile.buildozer -t ebay-apk-builder .
+docker run --rm -v $(pwd)/bin:/workspace/bin ebay-apk-builder
+```
+
+Mehr Details: [APK Build Guide](APK_BUILD_GUIDE.md)
+
 ### 💡 MONETIZATION STRATEGY
 1. **Personal Use** → Kostenlos (bis 10 Listings/Monat)
 2. **Pro User** → 29€/Monat (unlimited + premium features)  

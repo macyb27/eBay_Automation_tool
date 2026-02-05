@@ -1,0 +1,212 @@
+# ============================================
+# GitHub Actions: APK Build ohne Sandbox
+# Automatischer Android APK Build bei Push/PR
+# ============================================
+
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'cursor/*'
+    paths:
+      - 'mobile_app/**'
+      - 'buildozer.spec'
+      - 'build_apk.sh'
+      - '.github/workflows/build-apk.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile_app/**'
+      - 'buildozer.spec'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build Type (debug/release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+env:
+  ANDROID_API: 33
+  ANDROID_MIN_API: 24
+  ANDROID_NDK: 25b
+
+jobs:
+  build-apk:
+    name: Build APK (No Sandbox)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      # ============================================
+      # Setup
+      # ============================================
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # ============================================
+      # System-Abhaengigkeiten (OHNE Sandbox)
+      # ============================================
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential \
+            git \
+            zip \
+            unzip \
+            autoconf \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            cmake \
+            libffi-dev \
+            libssl-dev \
+            automake \
+            lld \
+            libltdl-dev
+
+      # ============================================
+      # Python Build-Tools (Direkt, ohne Sandbox)
+      # ============================================
+      - name: Install Build Tools (No Sandbox)
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install \
+            buildozer==1.5.0 \
+            cython==0.29.36 \
+            python-for-android \
+            sh \
+            appdirs \
+            colorama \
+            jinja2 \
+            packaging
+
+      # ============================================
+      # Cache fuer schnellere Builds
+      # ============================================
+      - name: Cache Buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            .buildozer
+            ~/.buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}-${{ env.ANDROID_API }}
+          restore-keys: |
+            buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}-
+            buildozer-${{ runner.os }}-
+
+      # ============================================
+      # APK Build (OHNE Sandbox-Umgebung)
+      # ============================================
+      - name: Build Debug APK
+        if: ${{ github.event.inputs.build_type != 'release' }}
+        run: |
+          echo "Building APK without sandbox environment..."
+          export USE_VENV=0
+          buildozer -v android debug 2>&1 | tee build.log
+        env:
+          ANDROIDSDK: ${{ github.workspace }}/.buildozer/android/platform/android-sdk
+          ANDROIDNDK: ${{ github.workspace }}/.buildozer/android/platform/android-ndk-r${{ env.ANDROID_NDK }}
+          ANDROIDAPI: ${{ env.ANDROID_API }}
+          NDKAPI: ${{ env.ANDROID_MIN_API }}
+
+      - name: Build Release APK
+        if: ${{ github.event.inputs.build_type == 'release' }}
+        run: |
+          echo "Building RELEASE APK without sandbox environment..."
+          export USE_VENV=0
+          buildozer -v android release 2>&1 | tee build.log
+        env:
+          ANDROIDSDK: ${{ github.workspace }}/.buildozer/android/platform/android-sdk
+          ANDROIDNDK: ${{ github.workspace }}/.buildozer/android/platform/android-ndk-r${{ env.ANDROID_NDK }}
+          ANDROIDAPI: ${{ env.ANDROID_API }}
+          NDKAPI: ${{ env.ANDROID_MIN_API }}
+
+      # ============================================
+      # Artefakte speichern
+      # ============================================
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-automation-apk
+          path: bin/*.apk
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
+
+      # ============================================
+      # Build-Ergebnis ausgeben
+      # ============================================
+      - name: Build Summary
+        if: success()
+        run: |
+          echo "## APK Build Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Mode:** ${{ github.event.inputs.build_type || 'debug' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sandbox:** Deaktiviert" >> $GITHUB_STEP_SUMMARY
+          echo "- **Android API:** ${{ env.ANDROID_API }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Min API:** ${{ env.ANDROID_MIN_API }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### APK Files" >> $GITHUB_STEP_SUMMARY
+          if [ -d "bin" ]; then
+            ls -lh bin/*.apk 2>/dev/null || echo "Keine APK gefunden"
+          fi
+
+  # ============================================
+  # Docker-basierter Build (Alternative)
+  # ============================================
+  build-apk-docker:
+    name: Build APK (Docker, No Sandbox)
+    runs-on: ubuntu-22.04
+    if: false  # Auf true setzen fuer Docker-basierten Build
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -f Dockerfile.buildozer -t ebay-apk-builder .
+
+      - name: Build APK in Container
+        run: |
+          mkdir -p bin
+          docker run --rm \
+            -v $(pwd)/bin:/workspace/bin \
+            ebay-apk-builder \
+            ${{ github.event.inputs.build_type || 'debug' }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-automation-apk-docker
+          path: bin/*.apk
+          retention-days: 30
