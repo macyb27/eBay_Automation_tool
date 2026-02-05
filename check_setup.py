@@ -16,6 +16,33 @@ from typing import Dict, List
 # Load environment variables
 load_dotenv()
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse common truthy/falsey env var values."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    val = raw.strip().lower()
+    if val in {"1", "true", "yes", "y", "on"}:
+        return True
+    if val in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+def _ebay_use_sandbox() -> bool:
+    """
+    Determine eBay environment.
+    Precedence:
+      1) EBAY_ENVIRONMENT: 'production'/'live'/'prod' or 'sandbox'/'test'
+      2) EBAY_SANDBOX: boolean (backwards compatible)
+    Default: production (no sandbox).
+    """
+    env = (os.getenv("EBAY_ENVIRONMENT") or "").strip().lower()
+    if env in {"production", "prod", "live"}:
+        return False
+    if env in {"sandbox", "test", "testing", "dev", "development"}:
+        return True
+    return _env_bool("EBAY_SANDBOX", default=False)
+
 class SetupChecker:
     def __init__(self):
         self.results: Dict[str, bool] = {}
@@ -45,7 +72,10 @@ class SetupChecker:
             
         try:
             # Test eBay Finding API
-            url = f"https://svcs.sandbox.ebay.com/services/search/FindingService/v1"
+            if _ebay_use_sandbox():
+                url = "https://svcs.sandbox.ebay.com/services/search/FindingService/v1"
+            else:
+                url = "https://svcs.ebay.com/services/search/FindingService/v1"
             params = {
                 'OPERATION-NAME': 'findItemsByKeywords',
                 'SERVICE-VERSION': '1.0.0',

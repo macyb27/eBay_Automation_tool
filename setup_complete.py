@@ -232,7 +232,12 @@ EBAY_USER_TOKEN=your_ebay_user_token_here
 
 # eBay Settings
 EBAY_SITE_ID=77
-EBAY_SANDBOX=true
+# Environment selection:
+# - production (default): live endpoints, real listings
+# - sandbox: test endpoints, no real listings
+EBAY_ENVIRONMENT=production
+# Backwards compatible flag (prefer EBAY_ENVIRONMENT)
+EBAY_SANDBOX=false
 
 # ========================================
 # 💾 DATABASE CONFIGURATION

@@ -7,7 +7,27 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 from enum import Enum
 import asyncio
+import os
 from pydantic import BaseModel
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    val = raw.strip().lower()
+    if val in {"1", "true", "yes", "y", "on"}:
+        return True
+    if val in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+def _ebay_use_sandbox() -> bool:
+    env = (os.getenv("EBAY_ENVIRONMENT") or "").strip().lower()
+    if env in {"production", "prod", "live"}:
+        return False
+    if env in {"sandbox", "test", "testing", "dev", "development"}:
+        return True
+    return _env_bool("EBAY_SANDBOX", default=False)
 
 class ProductCategory(Enum):
     ELECTRONICS = "electronics"
@@ -118,7 +138,7 @@ class EbayAPIClient:
     
     def __init__(self):
         self.auth_token = None  # OAuth 2.0
-        self.sandbox_mode = True  # Für Development
+        self.sandbox_mode = _ebay_use_sandbox()
     
     async def create_listing_async(self, listing: ListingContent, images: List[str]) -> str:
         # TODO: eBay Trading API Integration

@@ -30,12 +30,15 @@ Erstelle eine `.env` Datei im Root-Verzeichnis:
 OPENAI_API_KEY=sk-your-openai-key
 ANTHROPIC_API_KEY=sk-ant-your-claude-key
 
-# 🛒 EBAY API (Sandbox für Development)
+# 🛒 EBAY API (Production oder Sandbox)
 EBAY_APP_ID=your-app-id
 EBAY_CERT_ID=your-cert-id  
 EBAY_DEV_ID=your-dev-id
 EBAY_TOKEN=your-user-token
-EBAY_SANDBOX=true
+# Empfohlen: über EBAY_ENVIRONMENT steuern (production|sandbox)
+EBAY_ENVIRONMENT=production
+# Backwards-Kompatibilität (falls EBAY_ENVIRONMENT nicht gesetzt ist)
+EBAY_SANDBOX=false
 
 # 🔒 SECURITY
 JWT_SECRET=your-super-secret-jwt-key
@@ -61,7 +64,7 @@ SENTRY_DSN=your-sentry-dsn
 1. Registriere dich bei https://developer.ebay.com/
 2. Erstelle eine neue App im Developer Portal
 3. Notiere dir: App ID, Cert ID, Dev ID
-4. Generiere ein User Token für Sandbox Tests
+4. Generiere ein User Token für die gewählte Umgebung (Production oder Sandbox)
 
 ### 🐳 ENTWICKLUNG MIT DOCKER (Empfohlen!)
 
