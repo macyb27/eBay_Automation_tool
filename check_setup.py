@@ -16,6 +16,12 @@ from typing import Dict, List
 # Load environment variables
 load_dotenv()
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 class SetupChecker:
     def __init__(self):
         self.results: Dict[str, bool] = {}
@@ -44,8 +50,14 @@ class SetupChecker:
             return False
             
         try:
+            sandbox_mode = _env_flag("EBAY_SANDBOX", default=False)
+            base_url = (
+                "https://svcs.sandbox.ebay.com/services/search/FindingService/v1"
+                if sandbox_mode
+                else "https://svcs.ebay.com/services/search/FindingService/v1"
+            )
             # Test eBay Finding API
-            url = f"https://svcs.sandbox.ebay.com/services/search/FindingService/v1"
+            url = base_url
             params = {
                 'OPERATION-NAME': 'findItemsByKeywords',
                 'SERVICE-VERSION': '1.0.0',

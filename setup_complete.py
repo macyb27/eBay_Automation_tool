@@ -232,7 +232,7 @@ EBAY_USER_TOKEN=your_ebay_user_token_here
 
 # eBay Settings
 EBAY_SITE_ID=77
-EBAY_SANDBOX=true
+EBAY_SANDBOX=false
 
 # ========================================
 # 💾 DATABASE CONFIGURATION

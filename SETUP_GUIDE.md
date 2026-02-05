@@ -30,12 +30,12 @@ Erstelle eine `.env` Datei im Root-Verzeichnis:
 OPENAI_API_KEY=sk-your-openai-key
 ANTHROPIC_API_KEY=sk-ant-your-claude-key
 
-# 🛒 EBAY API (Sandbox für Development)
+# 🛒 EBAY API (Production ohne Sandbox)
 EBAY_APP_ID=your-app-id
 EBAY_CERT_ID=your-cert-id  
 EBAY_DEV_ID=your-dev-id
 EBAY_TOKEN=your-user-token
-EBAY_SANDBOX=true
+EBAY_SANDBOX=false
 
 # 🔒 SECURITY
 JWT_SECRET=your-super-secret-jwt-key
