@@ -10,7 +10,10 @@ from dotenv import load_dotenv
 import asyncio
 import aiohttp
 import redis
-import psycopg
+try:
+    import psycopg  # type: ignore
+except ModuleNotFoundError:
+    psycopg = None
 from typing import Dict, List
 
 # Load environment variables
@@ -95,6 +98,10 @@ class SetupChecker:
         """Test Database Connection"""
         db_url = os.getenv('DATABASE_URL', '')
         if not db_url:
+            return False
+
+        if psycopg is None:
+            print("⚠️ Database check skipped: psycopg is not installed")
             return False
             
         try:
