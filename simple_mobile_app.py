@@ -5,36 +5,262 @@ Vision-only version for quick testing
 """
 
 import os
-import asyncio
-import sys
+import base64
+import json
+import re
+from dataclasses import dataclass
+from typing import List, Tuple, Optional, Dict, Any
+
 import aiohttp
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 import logging
-
-# Add services to path
-sys.path.append('/home/user/ebay_automation_tool')
-from services.vision_service import OpenAIVisionService
 from dotenv import load_dotenv
 
 # Load environment
-load_dotenv('/home/user/ebay_automation_tool/.env')
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ========================================
+# Listing Generation (Vision + Draft)
+# ========================================
+
+@dataclass
+class ProductInfo:
+    name: str
+    category: str
+    condition: str
+    brand: Optional[str]
+    features: List[str]
+
+@dataclass
+class ListingDraft:
+    product: ProductInfo
+    estimated_value_range: Tuple[int, int]
+    suggested_keywords: List[str]
+    condition_details: str
+    confidence_score: float
+    listing_title: str
+    listing_description: str
+    recommended_price: int
+    shipping_suggestion: str
+    source: str
+
+class ListingGenerator:
+    def __init__(self, api_key: Optional[str]):
+        self.api_key = api_key
+        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    def is_live(self) -> bool:
+        return bool(self.api_key)
+
+    async def analyze_product_image(self, image_data: bytes, filename: Optional[str]) -> ListingDraft:
+        if not self.api_key:
+            return self._mock_result(filename, "Demo-Modus aktiv (kein OPENAI_API_KEY).")
+
+        try:
+            base64_image = base64.b64encode(image_data).decode("utf-8")
+            response = await self._call_openai_vision(base64_image)
+            data = self._parse_response(response)
+            return self._build_result(data, source="openai")
+        except Exception as exc:
+            logger.warning("OpenAI analysis failed, using mock: %s", exc)
+            return self._mock_result(filename, "OpenAI nicht erreichbar. Demo-Daten generiert.")
+
+    async def _call_openai_vision(self, base64_image: str) -> Dict[str, Any]:
+        prompt = (
+            "Du bist ein Assistent zur Erstellung von eBay-Listings. "
+            "Antworte ausschließlich mit validem JSON ohne Markdown.\n"
+            "Schema:\n"
+            "{\n"
+            "  \"product_name\": \"\",\n"
+            "  \"category\": \"\",\n"
+            "  \"condition\": \"\",\n"
+            "  \"brand\": \"\",\n"
+            "  \"features\": [\"\"],\n"
+            "  \"condition_details\": \"\",\n"
+            "  \"estimated_value_eur\": {\"min\": 0, \"max\": 0},\n"
+            "  \"confidence_score\": 0.0,\n"
+            "  \"suggested_keywords\": [\"\"],\n"
+            "  \"listing_title\": \"\",\n"
+            "  \"listing_description\": \"\",\n"
+            "  \"price_recommendation_eur\": 0,\n"
+            "  \"shipping_suggestion\": \"\"\n"
+            "}\n"
+            "Regeln: listing_title max 80 Zeichen. "
+            "listing_description als kurzer Absatz + Bullet-Liste, ohne HTML."
+        )
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": 900,
+            "temperature": 0.2
+        }
+
+        timeout = aiohttp.ClientTimeout(total=40)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise ValueError(f"OpenAI API error {response.status}: {error_text}")
+                return await response.json()
+
+    def _parse_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            content = response["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ValueError(f"Invalid OpenAI response: {exc}") from exc
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", content, re.S)
+            if not match:
+                raise ValueError("No JSON object found in response.")
+            return json.loads(match.group(0))
+
+    def _build_result(self, data: Dict[str, Any], source: str) -> ListingDraft:
+        def to_int(value: Any, default: int) -> int:
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return default
+
+        def to_str_list(value: Any) -> List[str]:
+            if isinstance(value, list):
+                return [str(item).strip() for item in value if str(item).strip()]
+            return []
+
+        price_range = data.get("estimated_value_eur", {})
+        min_val = max_val = 0
+        if isinstance(price_range, dict):
+            min_val = to_int(price_range.get("min"), 0)
+            max_val = to_int(price_range.get("max"), min_val)
+        elif isinstance(price_range, str):
+            if "-" in price_range:
+                parts = price_range.split("-", 1)
+                min_val = to_int(parts[0], 0)
+                max_val = to_int(parts[1], min_val)
+            else:
+                min_val = max_val = to_int(price_range, 0)
+        elif isinstance(price_range, (int, float)):
+            min_val = max_val = to_int(price_range, 0)
+
+        if min_val <= 0:
+            min_val = 20
+        if max_val < min_val:
+            max_val = min_val
+
+        recommended_price = to_int(data.get("price_recommendation_eur"), 0)
+        if recommended_price <= 0:
+            recommended_price = int((min_val + max_val) / 2)
+
+        product = ProductInfo(
+            name=str(data.get("product_name") or "Unbekanntes Produkt"),
+            category=str(data.get("category") or "Sonstiges"),
+            condition=str(data.get("condition") or "Gebraucht"),
+            brand=str(data.get("brand") or "") or None,
+            features=to_str_list(data.get("features"))
+        )
+
+        listing_title = str(data.get("listing_title") or product.name).strip()
+        listing_description = str(data.get("listing_description") or "").strip()
+        if not listing_description:
+            listing_description = (
+                f"{product.name} in {product.condition}em Zustand.\n"
+                f"- Kategorie: {product.category}\n"
+                "- Versand nach Absprache\n"
+            )
+
+        return ListingDraft(
+            product=product,
+            estimated_value_range=(min_val * 100, max_val * 100),
+            suggested_keywords=to_str_list(data.get("suggested_keywords")),
+            condition_details=str(data.get("condition_details") or ""),
+            confidence_score=float(data.get("confidence_score") or 0.6),
+            listing_title=listing_title[:80],
+            listing_description=listing_description,
+            recommended_price=recommended_price * 100,
+            shipping_suggestion=str(data.get("shipping_suggestion") or "Versand nach Absprache"),
+            source=source
+        )
+
+    def _mock_result(self, filename: Optional[str], note: str) -> ListingDraft:
+        product_name = "Produkt"
+        if filename:
+            product_name = filename.rsplit(".", 1)[0].replace("_", " ").strip() or product_name
+
+        product = ProductInfo(
+            name=product_name,
+            category="Sonstiges",
+            condition="Gebraucht",
+            brand=None,
+            features=["Funktionsfaehig", "Gepflegt", "Sofort einsatzbereit"]
+        )
+
+        min_val, max_val = 20, 35
+        return ListingDraft(
+            product=product,
+            estimated_value_range=(min_val * 100, max_val * 100),
+            suggested_keywords=["gebraucht", "top zustand", "schneller versand"],
+            condition_details=note,
+            confidence_score=0.4,
+            listing_title=f"{product.name} - {product.condition}".strip()[:80],
+            listing_description=(
+                f"{product.name} in {product.condition}em Zustand.\n"
+                "- Lieferung wie abgebildet\n"
+                "- Privatverkauf, keine Garantie\n"
+            ),
+            recommended_price=int(((min_val + max_val) / 2) * 100),
+            shipping_suggestion="DHL Paket oder Abholung",
+            source="mock"
+        )
+
 # Initialize FastAPI
 app = FastAPI(title="📱 Mobile eBay Tool", version="1.0.0")
 
-# Initialize Vision Service
-vision_service = OpenAIVisionService(api_key=os.getenv('OPENAI_API_KEY'))
+# Initialize Listing Generator
+listing_generator = ListingGenerator(api_key=os.getenv('OPENAI_API_KEY'))
 
 @app.get("/", response_class=HTMLResponse)
 async def mobile_app():
     """📱 Mobile-optimierte eBay Tool Interface"""
-    
+
+    if listing_generator.is_live():
+        status_text = "✅ OpenAI Vision API aktiv"
+        status_class = "status"
+    else:
+        status_text = "⚠️ Demo-Modus (kein OPENAI_API_KEY gesetzt)"
+        status_class = "status warning"
+
     html_content = """
 <!DOCTYPE html>
 <html lang="de">
@@ -252,6 +478,36 @@ async def mobile_app():
             text-align: center;
             font-size: 14px;
         }
+        
+        .status.warning {
+            background: #f0ad4e;
+            color: #222;
+        }
+        
+        .result-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        
+        .copy-btn {
+            background: #f1f1f1;
+            border: none;
+            color: #333;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        
+        .copy-btn:active {
+            transform: scale(0.98);
+        }
+        
+        .prewrap {
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 <body>
@@ -261,8 +517,8 @@ async def mobile_app():
             <p>Foto → AI-Analyse → eBay Ready</p>
         </div>
         
-        <div class="status">
-            ✅ OpenAI Vision API aktiv
+        <div class="__STATUS_CLASS__">
+            __STATUS_TEXT__
         </div>
         
         <div class="upload-area" onclick="document.getElementById('fileInput').click()">
@@ -303,20 +559,51 @@ async def mobile_app():
                 <div class="result-label">💰 Geschätzter Preis</div>
                 <div class="result-value price-range" id="priceRange">-</div>
             </div>
+
+            <div class="result-item">
+                <div class="result-label">✅ Empfohlener Preis</div>
+                <div class="result-value" id="recommendedPrice">-</div>
+            </div>
             
             <div class="result-item">
                 <div class="result-label">⭐ Zustand</div>
                 <div class="result-value" id="condition">-</div>
+            </div>
+
+            <div class="result-item">
+                <div class="result-header">
+                    <div class="result-label">🏷️ Listing Titel</div>
+                    <button class="copy-btn" onclick="copyText('listingTitle')">Kopieren</button>
+                </div>
+                <div class="result-value" id="listingTitle">-</div>
+            </div>
+
+            <div class="result-item">
+                <div class="result-header">
+                    <div class="result-label">📝 Listing Beschreibung</div>
+                    <button class="copy-btn" onclick="copyText('listingDescription')">Kopieren</button>
+                </div>
+                <div class="result-value prewrap" id="listingDescription">-</div>
             </div>
             
             <div class="result-item">
                 <div class="result-label">🔍 SEO Keywords</div>
                 <div class="keywords" id="keywords"></div>
             </div>
+
+            <div class="result-item">
+                <div class="result-label">📦 Versand</div>
+                <div class="result-value" id="shippingSuggestion">-</div>
+            </div>
             
             <div class="result-item">
                 <div class="result-label">📊 Details</div>
                 <div class="result-value" id="details">-</div>
+            </div>
+
+            <div class="result-item">
+                <div class="result-label">📈 Confidence</div>
+                <div class="result-value" id="confidenceScore">-</div>
             </div>
         </div>
         
@@ -327,6 +614,24 @@ async def mobile_app():
 
     <script>
         let currentImage = null;
+
+        function copyText(elementId) {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+            const text = element.textContent || '';
+            if (!text || text === '-') return;
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                const temp = document.createElement('textarea');
+                temp.value = text;
+                document.body.appendChild(temp);
+                temp.select();
+                document.execCommand('copy');
+                document.body.removeChild(temp);
+            }
+        }
         
         // File input handler
         document.getElementById('fileInput').addEventListener('change', function(e) {
@@ -388,22 +693,53 @@ async def mobile_app():
         }
         
         function displayResults(data) {
-            document.getElementById('productName').textContent = data.product.name;
-            document.getElementById('category').textContent = data.product.category;
-            document.getElementById('priceRange').textContent = 
-                `€${(data.estimated_value_range[0]/100).toFixed(2)} - €${(data.estimated_value_range[1]/100).toFixed(2)}`;
-            document.getElementById('condition').textContent = data.product.condition;
-            document.getElementById('details').textContent = data.condition_details;
+            document.getElementById('productName').textContent = data.product?.name || '-';
+            document.getElementById('category').textContent = data.product?.category || '-';
+
+            if (data.estimated_value_range && data.estimated_value_range.length >= 2) {
+                document.getElementById('priceRange').textContent =
+                    `€${(data.estimated_value_range[0]/100).toFixed(2)} - €${(data.estimated_value_range[1]/100).toFixed(2)}`;
+            } else {
+                document.getElementById('priceRange').textContent = '-';
+            }
+
+            if (data.recommended_price) {
+                document.getElementById('recommendedPrice').textContent =
+                    `€${(data.recommended_price/100).toFixed(2)}`;
+            } else {
+                document.getElementById('recommendedPrice').textContent = '-';
+            }
+
+            document.getElementById('condition').textContent = data.product?.condition || '-';
+            document.getElementById('listingTitle').textContent = data.listing_title || '-';
+            document.getElementById('listingDescription').textContent = data.listing_description || '-';
+            document.getElementById('shippingSuggestion').textContent = data.shipping_suggestion || '-';
+            document.getElementById('confidenceScore').textContent = data.confidence_score
+                ? `${Math.round(data.confidence_score * 100)}%`
+                : '-';
+
+            const detailsParts = [];
+            if (data.condition_details) {
+                detailsParts.push(data.condition_details);
+            }
+            if (data.product?.features && data.product.features.length) {
+                detailsParts.push(`Features: ${data.product.features.join(', ')}`);
+            }
+            document.getElementById('details').textContent = detailsParts.length
+                ? detailsParts.join(' | ')
+                : '-';
             
             // Keywords
             const keywordsDiv = document.getElementById('keywords');
             keywordsDiv.innerHTML = '';
-            data.suggested_keywords.forEach(keyword => {
-                const span = document.createElement('span');
-                span.className = 'keyword';
-                span.textContent = keyword;
-                keywordsDiv.appendChild(span);
-            });
+            if (data.suggested_keywords && data.suggested_keywords.length) {
+                data.suggested_keywords.forEach(keyword => {
+                    const span = document.createElement('span');
+                    span.className = 'keyword';
+                    span.textContent = keyword;
+                    keywordsDiv.appendChild(span);
+                });
+            }
             
             document.getElementById('results').style.display = 'block';
         }
@@ -411,7 +747,12 @@ async def mobile_app():
 </body>
 </html>
     """
-    
+    html_content = (
+        html_content
+        .replace("__STATUS_TEXT__", status_text)
+        .replace("__STATUS_CLASS__", status_class)
+    )
+
     return HTMLResponse(content=html_content)
 
 @app.post("/analyze")
@@ -422,23 +763,28 @@ async def analyze_product(file: UploadFile = File(...)):
         # Read image data
         image_data = await file.read()
         
-        # Analyze with Vision Service
+        # Analyze and build listing draft
         logger.info(f"Analyzing image: {file.filename}, size: {len(image_data)} bytes")
-        vision_result = await vision_service.analyze_product_image(image_data)
+        listing_result = await listing_generator.analyze_product_image(image_data, file.filename)
         
         # Prepare response
         response_data = {
             "product": {
-                "name": vision_result.product.name,
-                "category": vision_result.product.category,
-                "condition": vision_result.product.condition,
-                "brand": vision_result.product.brand,
-                "features": vision_result.product.features
+                "name": listing_result.product.name,
+                "category": listing_result.product.category,
+                "condition": listing_result.product.condition,
+                "brand": listing_result.product.brand,
+                "features": listing_result.product.features
             },
-            "estimated_value_range": vision_result.estimated_value_range,
-            "suggested_keywords": vision_result.suggested_keywords,
-            "condition_details": vision_result.condition_details,
-            "confidence_score": vision_result.confidence_score
+            "estimated_value_range": listing_result.estimated_value_range,
+            "suggested_keywords": listing_result.suggested_keywords,
+            "condition_details": listing_result.condition_details,
+            "confidence_score": listing_result.confidence_score,
+            "listing_title": listing_result.listing_title,
+            "listing_description": listing_result.listing_description,
+            "recommended_price": listing_result.recommended_price,
+            "shipping_suggestion": listing_result.shipping_suggestion,
+            "source": listing_result.source
         }
         
         return JSONResponse({
@@ -456,10 +802,12 @@ async def analyze_product(file: UploadFile = File(...)):
 @app.get("/health")
 async def health_check():
     """🔍 System Health Check"""
+    mode = "openai" if listing_generator.is_live() else "mock"
     return {
         "status": "healthy",
         "service": "✅ Mobile eBay Tool ready",
-        "vision": "✅ OpenAI Vision active"
+        "vision": "✅ OpenAI Vision active" if mode == "openai" else "⚠️ Demo mode",
+        "mode": mode
     }
 
 if __name__ == "__main__":
