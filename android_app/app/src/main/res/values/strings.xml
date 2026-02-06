@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">eBay Automation</string>
+    <string name="default_base_url">http://10.0.2.2:8000</string>
+    <string name="dialog_title">Base URL</string>
+    <string name="dialog_message">Set the backend base URL (long press to edit).</string>
+    <string name="dialog_positive">Save</string>
+    <string name="dialog_negative">Cancel</string>
+</resources>
