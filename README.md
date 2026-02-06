@@ -33,3 +33,6 @@ Monitoring:   Sentry + Posthog
 2. **Pro User** → 29€/Monat (unlimited + premium features)  
 3. **Business** → 99€/Monat (multi-user + analytics)
 4. **White Label** → Custom pricing für Reseller
+
+### Android APK
+Build instructions are in `ANDROID_BUILD.md`.
